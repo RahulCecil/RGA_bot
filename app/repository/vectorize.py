@@ -1,90 +1,121 @@
 import os
 import re
+import sys
 from pypdf import PdfReader
 from openai import OpenAI
 import psycopg2
 from pgvector.psycopg2 import register_vector
 
-# 1. Configuration
-PDF_PATH = "EU_AI_Act_EN_TXT.pdf"  # Place your PDF in this folder
-DB_CONN_STRING = "postgresql://admin:secret_password@localhost:5432/ai_act_db" # Port 5432 to avoid conflicts
-PRIVATEMODE_PROXY_URL = "http://localhost:8080/v1"
-PRIVATEMODE_API_KEY = "placeholder"
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
-# Initialize OpenAI Client (Privatemode AI proxy)
+from app.core.database import ensure_schema
+
+# 1. Configuration
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PDF_PATH = os.path.join(SCRIPT_DIR, "EU_AI_Act_EN_TXT.pdf")
+
+DB_CONN_STRING = os.getenv("DB_CONN_STRING", "postgresql://admin:secret_password@localhost:5432/ai_act_db")
+PRIVATEMODE_PROXY_URL = os.getenv("PRIVATEMODE_PROXY_URL", "http://localhost:8080/v1")
+PRIVATEMODE_API_KEY = os.getenv("PRIVATEMODE_API_KEY", "placeholder")
+PRIVATEMODE_EMBEDDING_MODEL = os.getenv("PRIVATEMODE_EMBEDDING_MODEL", "qwen3-embedding-4b")
+
+# Initialize OpenAI Client pointing to Privatemode AI Proxy
 client = OpenAI(base_url=PRIVATEMODE_PROXY_URL, api_key=PRIVATEMODE_API_KEY)
 
-# 2. Optimized Structural Extractor & Chunker
+# 2. Advanced Multi-Pass Extractor & Normalizer
 def extract_and_chunk_by_article(pdf_path):
     reader = PdfReader(pdf_path)
     
-    # Step A: Extract all text into a single continuous string to eliminate page-break splits
-    print("Extracting raw text from all pages...")
+    print("Extracting and normalizing raw text from PDF pages...")
     full_text_list = []
-    page_map = [] # Track page numbers for citations
+    page_map = [] 
     
     for page_idx, page in enumerate(reader.pages):
         page_text = page.extract_text()
+        
+        # Repair words split by hyphens at line breaks (e.g., Ar- \nticle -> Article)
+        page_text = re.sub(r'(\w+)-\s*\n\s*(\w+)', r'\1\2', page_text)
+        
         full_text_list.append(page_text)
-        # Store page index boundaries to map characters back to physical pages later
         page_map.append((len("".join(full_text_list[:-1])), len("".join(full_text_list)), page_idx + 1))
         
     full_text = "\n".join(full_text_list)
     
-    # Step B: Find all Article boundaries using regex.
-    # This matches patterns like "Article 13" at the start of a line or after a paragraph break.
-    # It uses a lookahead (?=Article\s+\d+) to split the text while keeping the "Article X" header in the chunk.
-    print("Identifying Article boundaries...")
-    article_pattern = re.compile(r'(?=\n\s*Article\s+\d+)', re.IGNORECASE)
+    # Standardize whitespace and hidden characters (like non-breaking spaces) to clean up formatting
+    full_text = re.sub(r'[ \t\xa0]+', ' ', full_text)
+    
+    print("Slicing document by Article structures...")
+    # Ultra-flexible lookahead: matches 'Article' or 'ticle' (in case 'Ar' was separated) followed by a number
+    article_pattern = re.compile(r'(?=\b(?:Article|ticle)\s+\d+)', re.IGNORECASE)
     raw_chunks = article_pattern.split(full_text)
     
     chunks = []
+    MAX_CHAR_LENGTH = 5000  # Safety threshold (~1200 words)
     
     for raw_chunk in raw_chunks:
         clean_chunk = raw_chunk.strip()
-        if len(clean_chunk) < 100: # Skip irrelevant trailing text, table of contents lines, or headers
+        if len(clean_chunk) < 50:
             continue
             
-        # Extract the Article title/number from the beginning of this chunk
-        title_match = re.match(r'^(Article\s+\d+)', clean_chunk, re.IGNORECASE)
-        article_name = title_match.group(1) if title_match else "General Context / Preamble"
+        # Extract the structural Article name from the front of the chunk
+        title_match = re.match(r'^(?:Article|ticle)\s+(\d+)', clean_chunk, re.IGNORECASE)
         
-        # Determine which physical PDF page this chunk primarily starts on
-        chunk_start_idx = full_text.find(clean_chunk[:50])
+        if title_match:
+            article_name = f"Article {title_match.group(1)}"
+        else:
+            article_name = "Official Recitals / Preamble"
+        
+        # Resolve physical page location
+        chunk_start_idx = full_text.find(clean_chunk[:30])
         page_number = 1
         for start, end, pg in page_map:
             if start <= chunk_start_idx <= end:
                 page_number = pg
                 break
                 
-        chunks.append({
-            "content": clean_chunk,
-            "document_name": os.path.basename(pdf_path),
-            "article": article_name,
-            "page_number": page_number
-        })
-        
+        # Safety sub-chunking fallback for very long articles or the initial preamble block
+        if len(clean_chunk) > MAX_CHAR_LENGTH:
+            for sub_idx, i in enumerate(range(0, len(clean_chunk), MAX_CHAR_LENGTH)):
+                sub_text = clean_chunk[i:i + MAX_CHAR_LENGTH]
+                chunks.append({
+                    "content": sub_text,
+                    "document_name": os.path.basename(pdf_path),
+                    "article": f"{article_name} (Part {sub_idx + 1})",
+                    "page_number": page_number
+                })
+        else:
+            chunks.append({
+                "content": clean_chunk,
+                "document_name": os.path.basename(pdf_path),
+                "article": article_name,
+                "page_number": page_number
+            })
+            
     return chunks
 
-# 3. Generate High-Quality Vectors
+# 3. Generate High-Quality Vectors (2560 dimensions from qwen3)
 def get_embedding(text):
     response = client.embeddings.create(
         input=[text],
-        model="text-embedding-3-small"
+        model=PRIVATEMODE_EMBEDDING_MODEL,
     )
     return response.data[0].embedding
 
-# 4. Store Chunks & Metadata in PostgreSQL
+# 4. Storage Matrix Execution
 def store_in_db(chunks):
+    ensure_schema()
     conn = psycopg2.connect(DB_CONN_STRING)
+    conn.autocommit = True
+
     cursor = conn.cursor()
     register_vector(conn)
     
-    print(f"\nUploading {len(chunks)} parsed articles/preambles to PGvector...")
+    print(f"\nUploading {len(chunks)} normalized segments into PGvector...")
     
     for i, chunk in enumerate(chunks):
         try:
-            # Vectorize the complete, self-contained Article context
             vector = get_embedding(chunk["content"])
             
             cursor.execute(
@@ -96,21 +127,20 @@ def store_in_db(chunks):
             )
             
             if (i + 1) % 10 == 0 or (i + 1) == len(chunks):
-                print(f"Successfully processed {i + 1}/{len(chunks)} articles...")
+                print(f"Successfully vectorized {i + 1}/{len(chunks)} chunks...")
                 
         except Exception as e:
-            print(f"Failed parsing chunk starting with '{chunk['content'][:30]}': {e}")
+            print(f"❌ Error inserting chunk [{chunk['article']}]: {e}")
             continue
             
-    conn.commit()
     cursor.close()
     conn.close()
-    print("\n🎉 Database vectorization complete! Your data is structured, embedded, and ready.")
+    print("\n🎉 Data ingestion successfully resolved! Check DBeaver for structural verification.")
 
 if __name__ == "__main__":
     if not os.path.exists(PDF_PATH):
-        print(f"❌ Error: Please place your '{PDF_PATH}' file in this directory before running.")
+        print(f"❌ Error: Please check your filename. '{PDF_PATH}' was not found.")
     else:
-        print("Starting structural legal vectorization...")
+        print("Starting advanced structural legal text parsing...")
         document_chunks = extract_and_chunk_by_article(PDF_PATH)
         store_in_db(document_chunks)

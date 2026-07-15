@@ -1,5 +1,5 @@
 class JudgeService:
-    def __init__(self, rag_service: RAGService):
+    def __init__(self, rag_service):
         self.rag = rag_service
 
     def evaluate_response(self, query: str, context: str, response: str) -> dict:

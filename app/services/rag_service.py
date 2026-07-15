@@ -1,15 +1,20 @@
 import os
 from openai import OpenAI
+from app.core.database import get_db_connection
+from app.repository.pgvector_retriever import PGVectorRetriever
+from app.services.judge_service import JudgeService
 from app.services.token_tracker import TokenMetrics, calculate_bytes
 
+
 class RAGService:
-    def __init__(self):
-        # Point to the local Privatemode Encryption Proxy
+    def __init__(self, retriever=None):
         self.client = OpenAI(
             base_url=os.getenv("PRIVATEMODE_PROXY_URL", "http://localhost:8080/v1"),
-            api_key=os.getenv("PRIVATEMODE_API_KEY", "placeholder") 
+            api_key=os.getenv("PRIVATEMODE_API_KEY", "placeholder"),
         )
         self.model = os.getenv("PRIVATEMODE_MODEL", "meta-llama-3.3-70b")
+        self.retriever = retriever if retriever is not None else PGVectorRetriever()
+        self.judge_service = JudgeService(self)
 
     def generate_answer_with_citations(self, query: str, retrieved_contexts: list) -> dict:
         # Construct the context block with explicit metadata IDs
@@ -51,5 +56,56 @@ class RAGService:
 
         return {
             "answer": raw_output,
-            "metrics": metrics
+            "metrics": metrics,
+        }
+
+    def search(self, query: str, limit: int = 4) -> list:
+        if self.retriever is not None:
+            return self.retriever.search(query, limit=limit)
+
+        conn = get_db_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT content, document_name, article, page_number
+                    FROM document_chunks
+                    ORDER BY id
+                    LIMIT %s
+                    """,
+                    (limit,),
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+
+        return [
+            {
+                "text": row[0],
+                "document_name": row[1],
+                "article": row[2],
+                "page": row[3],
+                "paragraph": "",
+            }
+            for row in rows
+        ]
+
+    def answer_query(self, query: str, limit: int = 4) -> dict:
+        retrieved_contexts = self.search(query, limit=limit)
+        result = self.generate_answer_with_citations(query, retrieved_contexts)
+        context_text = "\n\n".join(
+            f"[{i + 1}] {ctx.get('article', 'Unknown')} | page {ctx.get('page', '?')} | {ctx.get('text', '')}"
+            for i, ctx in enumerate(retrieved_contexts)
+        )
+        judge_result = self.judge_service.evaluate_response(query, context_text, result["answer"])
+        return {
+            "answer": result["answer"],
+            "sources": retrieved_contexts,
+            "metrics": result["metrics"],
+            "judge": judge_result,
+            "token_usage": {
+                "prompt_tokens": result["metrics"].prompt_tokens,
+                "completion_tokens": result["metrics"].completion_tokens,
+                "total_tokens": result["metrics"].total_tokens,
+            },
         }
