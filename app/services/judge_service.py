@@ -1,3 +1,6 @@
+import json
+
+
 class JudgeService:
     def __init__(self, rag_service):
         self.rag = rag_service
@@ -21,10 +24,17 @@ class JudgeService:
             "explanation": "<brief reason for the score>"
         }}
         """
-        # Querying the judge model
-        res = self.rag.client.chat.completions.create(
-            model=self.rag.model,
-            messages=[{"role": "user", "content": judge_prompt}],
-            response_format={"type": "json_object"}
-        )
-        return res.choices[0].message.content
+        try:
+            res = self.rag.client.chat.completions.create(
+                model=self.rag.model,
+                messages=[{"role": "user", "content": judge_prompt}],
+                response_format={"type": "json_object"}
+            )
+            content = res.choices[0].message.content or "{}"
+            return json.loads(content)
+        except Exception:
+            return {
+                "faithfulness_score": 0.0,
+                "relevance_score": 0.0,
+                "explanation": "Judge unavailable",
+            }
