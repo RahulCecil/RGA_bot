@@ -17,7 +17,7 @@ class RAGService:
         self.judge_service = JudgeService(self)
 
     def generate_answer_with_citations(self, query: str, retrieved_contexts: list) -> dict:
-        # Construct the context block with explicit metadata IDs
+        # Build an explicit source map so answer citations can be traced in the UI.
         context_str = ""
         for i, ctx in enumerate(retrieved_contexts):
             context_str += f"[Source #{i+1}]: {ctx['article']} - {ctx['paragraph']} (Page {ctx['page']})\nContent: {ctx['text']}\n\n"
@@ -29,7 +29,7 @@ class RAGService:
             "provide a 'Sources and Trustworthiness' section listing the exact Article, Paragraph, and Page."
         )
 
-        # Record incoming data size
+        # Data-in metric for traceability and cost analysis.
         bytes_in = calculate_bytes(system_prompt + context_str + query)
 
         try:
@@ -48,6 +48,7 @@ class RAGService:
             completion_tokens = usage.completion_tokens
             total_tokens = usage.total_tokens
         except Exception:
+            # Fallback keeps the app usable even when the model endpoint is down.
             fallback_summary = "\n\n".join(
                 f"[Source #{i+1}] {ctx.get('article', 'Unknown')} - paragraph {ctx.get('paragraph', 'n/a')} (Page {ctx.get('page', '?')})\n{ctx.get('text', '')}"
                 for i, ctx in enumerate(retrieved_contexts)
@@ -61,6 +62,7 @@ class RAGService:
             completion_tokens = 0
             total_tokens = 0
 
+        # Data-out metric complements token usage when token counters are unavailable.
         bytes_out = calculate_bytes(raw_output)
         metrics = TokenMetrics(
             prompt_tokens=prompt_tokens,
@@ -109,6 +111,7 @@ class RAGService:
     def answer_query(self, query: str, limit: int = 4) -> dict:
         retrieved_contexts = self.search(query, limit=limit)
         result = self.generate_answer_with_citations(query, retrieved_contexts)
+        # Judge evaluates grounding/relevance using the same retrieved context.
         context_text = "\n\n".join(
             f"[{i + 1}] {ctx.get('article', 'Unknown')} | page {ctx.get('page', '?')} | {ctx.get('text', '')}"
             for i, ctx in enumerate(retrieved_contexts)

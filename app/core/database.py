@@ -12,22 +12,23 @@ def get_db_connection():
 
 
 def ensure_schema():
+    embedding_dim = int(os.getenv("PRIVATEMODE_EMBEDDING_DIM", "2560"))
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
+            cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
             cur.execute(
-                """
+                f"""
                 CREATE TABLE IF NOT EXISTS document_chunks (
                     id SERIAL PRIMARY KEY,
                     content TEXT NOT NULL,
                     document_name TEXT NOT NULL,
                     article TEXT NOT NULL,
                     page_number INTEGER NOT NULL,
-                    embedding VECTOR(1024)
+                    embedding VECTOR({embedding_dim})
                 )
                 """
             )
-            cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
             conn.commit()
     finally:
         conn.close()

@@ -10,12 +10,13 @@ VENV_PYTHON = ROOT / "rga_bot.venv" / "Scripts" / "python.exe"
 
 def main() -> None:
     streamlit_port = 8501
+    python_exe = str(VENV_PYTHON) if VENV_PYTHON.exists() else sys.executable
     command = [
-        str(VENV_PYTHON),
+        python_exe,
         "-m",
         "streamlit",
         "run",
-        "app/streamlit_simple_app.py",
+        "app/streamlit_app.py",
         "--server.port",
         str(streamlit_port),
     ]
