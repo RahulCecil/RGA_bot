@@ -1,0 +1,55 @@
+import os
+from openai import OpenAI
+from app.services.token_tracker import TokenMetrics, calculate_bytes
+
+class RAGService:
+    def __init__(self):
+        # Point to the local Privatemode Encryption Proxy
+        self.client = OpenAI(
+            base_url=os.getenv("PRIVATEMODE_PROXY_URL", "http://localhost:8080/v1"),
+            api_key=os.getenv("PRIVATEMODE_API_KEY", "placeholder") 
+        )
+        self.model = os.getenv("PRIVATEMODE_MODEL", "meta-llama-3.3-70b")
+
+    def generate_answer_with_citations(self, query: str, retrieved_contexts: list) -> dict:
+        # Construct the context block with explicit metadata IDs
+        context_str = ""
+        for i, ctx in enumerate(retrieved_contexts):
+            context_str += f"[Source #{i+1}]: {ctx['article']} - {ctx['paragraph']} (Page {ctx['page']})\nContent: {ctx['text']}\n\n"
+
+        system_prompt = (
+            "You are an expert AI Legal Advisor specialized in the EU AI Act.\n"
+            "Answer the user's question using ONLY the provided sources. For every factual claim "
+            "you make, append an inline citation in the format [Source #X]. At the end of your response, "
+            "provide a 'Sources and Trustworthiness' section listing the exact Article, Paragraph, and Page."
+        )
+
+        # Record incoming data size
+        bytes_in = calculate_bytes(system_prompt + context_str + query)
+
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Context:\n{context_str}\n\nQuestion: {query}"}
+            ],
+            temperature=0.1
+        )
+
+        raw_output = response.choices[0].message.content
+        bytes_out = calculate_bytes(raw_output)
+
+        # Track usage directly from the API response
+        usage = response.usage
+        metrics = TokenMetrics(
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            total_tokens=usage.total_tokens,
+            bytes_in=bytes_in,
+            bytes_out=bytes_out
+        )
+
+        return {
+            "answer": raw_output,
+            "metrics": metrics
+        }
