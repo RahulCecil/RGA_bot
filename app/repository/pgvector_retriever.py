@@ -28,7 +28,7 @@ class PGVectorRetriever:
         return response.data[0].embedding
 
     def _extract_article_number(self, query: str):
-        match = re.search(r"\barticle\s+(\d+)\b", query, flags=re.IGNORECASE)
+        match = re.search(r"\b(?:article|art\.?|a\s*r\s*t\s*i\s*c\s*l\s*e)\s*(\d+)\b", query, flags=re.IGNORECASE)
         if not match:
             return None
         try:
@@ -79,18 +79,39 @@ class PGVectorRetriever:
                     with conn.cursor() as cur:
                         # If the user asks for a specific article, prioritize exact article chunks first.
                         if article_number is not None:
+                            vector_literal = "[" + ",".join(str(float(x)) for x in query_vector) + "]"
+
+                            # 1) Parent-level article chunks (paragraph_number IS NULL) provide broad context.
                             cur.execute(
                                 """
                                 SELECT content, document_name, article, paragraph_number, page_number
                                 FROM document_chunks
                                 WHERE article ILIKE %s
+                                  AND paragraph_number IS NULL
                                 ORDER BY page_number, paragraph_number NULLS LAST
+                                LIMIT 1
+                                """,
+                                (f"Article {article_number}%",),
+                            )
+                            parent_rows = cur.fetchall()
+
+                            # 2) Child paragraph chunks within that article are ranked by vector similarity.
+                            child_limit = max(limit - len(parent_rows), 1)
+                            cur.execute(
+                                """
+                                SELECT content, document_name, article, paragraph_number, page_number
+                                FROM document_chunks
+                                WHERE article ILIKE %s
+                                  AND paragraph_number IS NOT NULL
+                                ORDER BY embedding <-> %s::vector
                                 LIMIT %s
                                 """,
-                                (f"Article {article_number}%", limit),
+                                (f"Article {article_number}%", vector_literal, child_limit),
                             )
-                            article_rows = cur.fetchall()
-                            if article_rows:
+                            child_rows = cur.fetchall()
+
+                            combined = parent_rows + child_rows
+                            if combined:
                                 return [
                                     {
                                         "text": row[0],
@@ -99,7 +120,7 @@ class PGVectorRetriever:
                                         "paragraph": str(row[3]) if row[3] is not None else "",
                                         "page": row[4],
                                     }
-                                    for row in article_rows
+                                    for row in combined[:limit]
                                 ]
 
                         # Send a proper vector literal so the distance operator sees vector <-> vector.

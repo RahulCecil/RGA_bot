@@ -24,15 +24,19 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      llm_proxy:
+        condition: service_started
     environment:
       DB_CONN_STRING: postgresql://admin:secret_password@db:5432/ai_act_db
-      PRIVATEMODE_PROXY_URL: http://host.docker.internal:8080/v1
-      PRIVATEMODE_API_KEY: placeholder
+      PRIVATEMODE_PROXY_URL: ${PRIVATEMODE_PROXY_URL:-http://llm_proxy:8080/v1}
+      PRIVATEMODE_API_KEY: ${PRIVATEMODE_API_KEY:-placeholder}
       PRIVATEMODE_MODEL: gpt-oss-latest
       PRIVATEMODE_EMBEDDING_MODEL: qwen3-embedding-4b
       PRIVATEMODE_EMBEDDING_DIM: "2560"
       API_HOST: 0.0.0.0
       API_PORT: "8011"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8011:8011"
     healthcheck:
@@ -48,14 +52,38 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      llm_proxy:
+        condition: service_started
     profiles: ["ingest"]
     environment:
       DB_CONN_STRING: postgresql://admin:secret_password@db:5432/ai_act_db
-      PRIVATEMODE_PROXY_URL: http://host.docker.internal:8080/v1
-      PRIVATEMODE_API_KEY: placeholder
+      PRIVATEMODE_PROXY_URL: ${PRIVATEMODE_PROXY_URL:-http://llm_proxy:8080/v1}
+      PRIVATEMODE_API_KEY: ${PRIVATEMODE_API_KEY:-placeholder}
       PRIVATEMODE_EMBEDDING_MODEL: qwen3-embedding-4b
       PRIVATEMODE_EMBEDDING_DIM: "2560"
     command: ["python", "-m", "app.repository.vectorize"]
+
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rga_streamlit
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      API_BASE_URL: http://api:8011
+    ports:
+      - "8501:8501"
+    command: ["streamlit", "run", "app/streamlit_app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+
+  llm_proxy:
+    image: ghcr.io/edgelesssys/privatemode/privatemode-proxy:latest
+    container_name: rga_llm_proxy
+    restart: unless-stopped
+    command: ["--apiKey", "${PRIVATEMODE_API_KEY:-placeholder}"]
+    ports:
+      - "8080:8080"
 
 volumes:
   pgdata:

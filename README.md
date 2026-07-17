@@ -50,10 +50,36 @@ curl -X POST "http://127.0.0.1:8011/chat" ^
 
 ## Docker
 
-Run API + PostgreSQL/pgvector:
+Run API + Streamlit + PostgreSQL/pgvector + LLM proxy:
 
 ```bash
+copy .env.example .env
 docker compose up --build
+```
+
+Open:
+
+- API: `http://127.0.0.1:8011`
+- Streamlit frontend: `http://127.0.0.1:8501`
+- Postgres/pgvector: `localhost:5433`
+- LLM proxy: `http://127.0.0.1:8080`
+
+By default, API and ingestion use the proxy service inside Compose:
+
+```bash
+PRIVATEMODE_PROXY_URL=http://llm_proxy:8080/v1
+```
+
+The proxy container uses:
+
+```bash
+ghcr.io/edgelesssys/privatemode/privatemode-proxy:latest --apiKey <PRIVATEMODE_API_KEY>
+```
+
+If you prefer keeping proxy outside Compose, override in `.env`:
+
+```bash
+PRIVATEMODE_PROXY_URL=http://host.docker.internal:8080/v1
 ```
 
 Run one-off ingestion/vectorization job:
@@ -61,11 +87,6 @@ Run one-off ingestion/vectorization job:
 ```bash
 docker compose --profile ingest run --rm ingest
 ```
-
-Services:
-
-- API: `http://127.0.0.1:8011`
-- Postgres/pgvector: `localhost:5433`
 
 Environment overrides are in `docker-compose.yml` under the `api` service.
 
