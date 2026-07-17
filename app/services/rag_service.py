@@ -51,6 +51,7 @@ class RAGService:
             prompt_tokens = usage.prompt_tokens
             completion_tokens = usage.completion_tokens
             total_tokens = usage.total_tokens
+        
         except Exception as exc:
             logger.warning("Falling back to local response because model call failed: %s", exc)
             # Fallback keeps the app usable even when the model endpoint is down.
