@@ -69,8 +69,20 @@ def extract_and_chunk_by_article(pdf_path):
     # Standardize whitespace and hidden characters (like non-breaking spaces)
     full_text = re.sub(r'[ \t\xa0]+', ' ', full_text)
     
-    # Locate where preambles end and the enacting articles begin
-    enacting_split = re.split(r'\bHAVE\s+ADOPTED\s+THIS\s+REGULATION:', full_text, flags=re.IGNORECASE)
+    # Locate where preambles end and the enacting articles begin.
+    marker_match = re.search(r'\bHAVE\s+ADOPTED\s+THIS\s+REGULATION:', full_text, flags=re.IGNORECASE)
+    if marker_match:
+        preamble_text = full_text[:marker_match.start()]
+        enacted_text = full_text[marker_match.end():]
+    else:
+        # Fallback for OCR/text extraction variants where the exact marker is missing.
+        first_article_match = re.search(r'\b(?:Article|ticle)\s+\d+\b', full_text, flags=re.IGNORECASE)
+        if first_article_match:
+            preamble_text = full_text[:first_article_match.start()]
+            enacted_text = full_text[first_article_match.start():]
+        else:
+            preamble_text = full_text
+            enacted_text = ""
     
     chunks = []
     MAX_CHAR_LENGTH = 4500  # Fallback safety character limit
@@ -86,7 +98,6 @@ def extract_and_chunk_by_article(pdf_path):
     # =========================================================================
     # SECTION A: Parse the Recitals/Preamble (FIXED with safety sub-splits)
     # =========================================================================
-    preamble_text = enacting_split[0]
     print("Parsing preambles and recitals...")
     
     # Split by numbered recitals: e.g. \n(1), \n(12)
@@ -137,8 +148,7 @@ def extract_and_chunk_by_article(pdf_path):
     # =========================================================================
     # SECTION B: Parse the Enacted Articles and Paragraphs
     # =========================================================================
-    if len(enacting_split) > 1:
-        enacted_text = enacting_split[1]
+    if enacted_text.strip():
         print("Parsing structural articles and paragraph numbers...")
         
         # Split only when "Article" starts on a fresh line to bypass inline citations

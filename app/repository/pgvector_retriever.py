@@ -27,6 +27,15 @@ class PGVectorRetriever:
         response = self.client.embeddings.create(input=[text], model=self.embedding_model)
         return response.data[0].embedding
 
+    def _extract_article_number(self, query: str):
+        match = re.search(r"\barticle\s+(\d+)\b", query, flags=re.IGNORECASE)
+        if not match:
+            return None
+        try:
+            return int(match.group(1))
+        except ValueError:
+            return None
+
     def _load_local_fallback(self, limit: int = 4) -> list:
         repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         pdf_path = os.path.join(repo_root, "docs", "EU_AI_Act_EN_TXT.pdf")
@@ -49,6 +58,8 @@ class PGVectorRetriever:
         return chunks[:limit]
 
     def search(self, query: str, limit: int = 4) -> list:
+        article_number = self._extract_article_number(query)
+
         try:
             query_vector = self._embed_text(query)
         except Exception as exc:
@@ -66,14 +77,41 @@ class PGVectorRetriever:
                 try:
                     register_vector(conn)
                     with conn.cursor() as cur:
+                        # If the user asks for a specific article, prioritize exact article chunks first.
+                        if article_number is not None:
+                            cur.execute(
+                                """
+                                SELECT content, document_name, article, paragraph_number, page_number
+                                FROM document_chunks
+                                WHERE article ILIKE %s
+                                ORDER BY page_number, paragraph_number NULLS LAST
+                                LIMIT %s
+                                """,
+                                (f"Article {article_number}%", limit),
+                            )
+                            article_rows = cur.fetchall()
+                            if article_rows:
+                                return [
+                                    {
+                                        "text": row[0],
+                                        "document_name": row[1],
+                                        "article": row[2],
+                                        "paragraph": str(row[3]) if row[3] is not None else "",
+                                        "page": row[4],
+                                    }
+                                    for row in article_rows
+                                ]
+
+                        # Send a proper vector literal so the distance operator sees vector <-> vector.
+                        vector_literal = "[" + ",".join(str(float(x)) for x in query_vector) + "]"
                         cur.execute(
                             """
-                            SELECT content, document_name, article, page_number
+                            SELECT content, document_name, article, paragraph_number, page_number
                             FROM document_chunks
-                            ORDER BY embedding <-> %s
+                            ORDER BY embedding <-> %s::vector
                             LIMIT %s
                             """,
-                            (query_vector, limit),
+                            (vector_literal, limit),
                         )
                         rows = cur.fetchall()
                     if rows:
@@ -82,8 +120,8 @@ class PGVectorRetriever:
                                 "text": row[0],
                                 "document_name": row[1],
                                 "article": row[2],
-                                "page": row[3],
-                                "paragraph": "",
+                                "paragraph": str(row[3]) if row[3] is not None else "",
+                                "page": row[4],
                             }
                             for row in rows
                         ]
