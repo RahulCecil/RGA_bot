@@ -21,10 +21,11 @@ def ensure_schema():
                 f"""
                 CREATE TABLE IF NOT EXISTS document_chunks (
                     id SERIAL PRIMARY KEY,
-                    content TEXT NOT NULL,
                     document_name TEXT NOT NULL,
-                    article TEXT NOT NULL,
-                    page_number INTEGER NOT NULL,
+                    article TEXT NOT NULL,          -- e.g., "Article 5" or "Recital 12"
+                    paragraph_number INT,           -- e.g., 1, 2, 3 (NULL if it's general text)
+                    page_number INT NOT NULL,
+                    content TEXT NOT NULL,          -- The precise text of that paragraph
                     embedding VECTOR({embedding_dim})
                 )
                 """

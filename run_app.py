@@ -9,19 +9,22 @@ VENV_PYTHON = ROOT / "rga_bot.venv" / "Scripts" / "python.exe"
 
 
 def main() -> None:
-    streamlit_port = 8501
+    api_host = os.getenv("API_HOST", "127.0.0.1")
+    api_port = os.getenv("API_PORT", "8011")
     python_exe = str(VENV_PYTHON) if VENV_PYTHON.exists() else sys.executable
     command = [
         python_exe,
         "-m",
-        "streamlit",
-        "run",
-        "app/streamlit_app.py",
-        "--server.port",
-        str(streamlit_port),
+        "uvicorn",
+        "app.api:app",
+        "--host",
+        api_host,
+        "--port",
+        str(api_port),
+        "--reload",
     ]
 
-    print(f"Starting Streamlit app on http://127.0.0.1:{streamlit_port}...")
+    print(f"Starting FastAPI app on http://{api_host}:{api_port}...")
     subprocess.call(command, cwd=str(ROOT))
 
 

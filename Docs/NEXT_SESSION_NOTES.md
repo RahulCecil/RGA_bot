@@ -1,15 +1,13 @@
 # Next Session Notes
 
 ## Current Working Setup
-- Streamlit default launcher: `python run_app.py`
-- Unified Streamlit entry point: `app/streamlit_app.py`
-- Direct mode is default (`RGA_USE_FASTAPI=0`)
-- FastAPI mode can be enabled (`RGA_USE_FASTAPI=1`)
+- FastAPI launcher: `python run_app.py`
+- API server entry point: `app/api.py`
+- Default API URL: `http://127.0.0.1:8011`
 
-## EXE Launchers (Windows)
-- Direct mode launcher: `launch_direct_mode.py`
-- FastAPI mode launcher: `launch_fastapi_mode.py`
-- Build both EXEs: `python build_mode_exes.py`
+## API Endpoints
+- Health: `GET /health`
+- Chat: `POST /chat`
 
 ## RAG Pipeline Snapshot
 - Retriever: `app/repository/pgvector_retriever.py`
@@ -18,10 +16,10 @@
 - Token metrics: `app/services/token_tracker.py`
 
 ## Known Gaps / Next Work
-- Expose `bytes_in` and `bytes_out` in API and Streamlit UI.
+- Expose `bytes_in` and `bytes_out` in API response.
 - Add configurable chunking strategy selection and evaluation output.
 - Add explicit Trustworthy AI checklist output (limitations, confidence, source coverage).
-- Add stronger FastAPI-mode diagnostics in UI for failed backend calls.
+- Add stronger API diagnostics and structured error envelope for failed backend calls.
 
 ## Data/Infra Notes
 - Expected source PDF path: `docs/EU_AI_Act_EN_TXT.pdf`

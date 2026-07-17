@@ -1,0 +1,61 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: rga_pgvector
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: secret_password
+      POSTGRES_DB: ai_act_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d ai_act_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rga_api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_CONN_STRING: postgresql://admin:secret_password@db:5432/ai_act_db
+      PRIVATEMODE_PROXY_URL: http://host.docker.internal:8080/v1
+      PRIVATEMODE_API_KEY: placeholder
+      PRIVATEMODE_MODEL: gpt-oss-latest
+      PRIVATEMODE_EMBEDDING_MODEL: qwen3-embedding-4b
+      PRIVATEMODE_EMBEDDING_DIM: "2560"
+      API_HOST: 0.0.0.0
+      API_PORT: "8011"
+    ports:
+      - "8011:8011"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ingest:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles: ["ingest"]
+    environment:
+      DB_CONN_STRING: postgresql://admin:secret_password@db:5432/ai_act_db
+      PRIVATEMODE_PROXY_URL: http://host.docker.internal:8080/v1
+      PRIVATEMODE_API_KEY: placeholder
+      PRIVATEMODE_EMBEDDING_MODEL: qwen3-embedding-4b
+      PRIVATEMODE_EMBEDDING_DIM: "2560"
+    command: ["python", "-m", "app.repository.vectorize"]
+
+volumes:
+  pgdata:

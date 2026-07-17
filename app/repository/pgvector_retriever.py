@@ -1,10 +1,14 @@
 import os
 import re
 import json
+import logging
 import psycopg2
 from pypdf import PdfReader
 from openai import OpenAI
 from pgvector.psycopg2 import register_vector
+
+
+logger = logging.getLogger(__name__)
 
 
 class PGVectorRetriever:
@@ -47,13 +51,15 @@ class PGVectorRetriever:
     def search(self, query: str, limit: int = 4) -> list:
         try:
             query_vector = self._embed_text(query)
-        except Exception:
+        except Exception as exc:
+            logger.warning("Embedding request failed; using local fallback documents: %s", exc)
             query_vector = None
 
         if query_vector is not None:
             try:
                 conn = psycopg2.connect(self.connection_string)
-            except Exception:
+            except Exception as exc:
+                logger.warning("Database connection failed; using local fallback documents: %s", exc)
                 conn = None
 
             if conn is not None:
@@ -82,7 +88,7 @@ class PGVectorRetriever:
                             for row in rows
                         ]
                 except Exception:
-                    pass
+                    logger.warning("PGVector query failed; using local fallback documents", exc_info=True)
                 finally:
                     conn.close()
 

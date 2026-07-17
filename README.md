@@ -2,51 +2,75 @@
 
 ## Run locally
 
-Use the Streamlit entry point (direct mode by default):
+Use the FastAPI entry point:
 
 ```bash
 python run_app.py
 ```
 
-This starts the app on port 8501.
+This starts the API on port 8011 by default.
 
-## Execution modes
-
-- Default: direct Streamlit mode (no FastAPI required). The UI calls `RAGService` directly.
-- Optional: FastAPI mode. Set `RGA_USE_FASTAPI=1` and run the API separately.
-
-Example FastAPI start command:
+Equivalent explicit command:
 
 ```bash
 uvicorn app.api:app --host 127.0.0.1 --port 8011
 ```
 
-## One EXE per mode (Windows)
+## Streamlit frontend
 
-This repository now includes two dedicated launchers that install prerequisites, run setup, and launch:
-
-- `launch_direct_mode.py`: direct Streamlit mode
-- `launch_fastapi_mode.py`: FastAPI + Streamlit mode
-
-Build both EXEs:
+Start the API first, then run:
 
 ```bash
-python build_mode_exes.py
+streamlit run app/streamlit_app.py
 ```
 
-Generated executables:
+The frontend calls FastAPI at `http://127.0.0.1:8011` by default.
+Set `API_BASE_URL` to target a different backend URL.
 
-- `dist/RGA_DirectMode.exe`
-- `dist/RGA_FastAPIMode.exe`
+## API endpoints
 
-Runtime behavior:
+- `GET /health`: health check
+- `POST /chat`: query endpoint
 
-- Both launchers ensure required Python packages are installed.
-- Both attempt schema setup (`ensure_schema`) before launch.
-- FastAPI mode starts API, waits for `/health`, then starts Streamlit.
+`/chat` returns:
+
+- `answer`: generated response
+- `sources`: retrieved context chunks
+- `token_usage`: prompt/completion/total tokens
+- `metrics`: token counts plus `bytes_in` and `bytes_out`
+- `judge`: faithfulness, relevance, citation integrity, and diagnostics
+
+Example request:
+
+```bash
+curl -X POST "http://127.0.0.1:8011/chat" ^
+	-H "Content-Type: application/json" ^
+	-d "{\"query\":\"What does Article 5 say about prohibited AI practices?\",\"limit\":4}"
+```
+
+## Docker
+
+Run API + PostgreSQL/pgvector:
+
+```bash
+docker compose up --build
+```
+
+Run one-off ingestion/vectorization job:
+
+```bash
+docker compose --profile ingest run --rm ingest
+```
+
+Services:
+
+- API: `http://127.0.0.1:8011`
+- Postgres/pgvector: `localhost:5432`
+
+Environment overrides are in `docker-compose.yml` under the `api` service.
 
 ## Notes
 
 - The app uses the local RAG service and falls back to retrieved source excerpts when the configured model endpoint is unavailable.
 - For model-generated answers, configure the PrivateMode-compatible environment variables before launching.
-- Token usage and judge output are shown in the Streamlit response panel.
+- Token usage and judge output are returned in the `/chat` API response payload.

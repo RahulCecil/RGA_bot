@@ -1,9 +1,13 @@
 import os
+import logging
 from openai import OpenAI
 from app.core.database import get_db_connection
 from app.repository.pgvector_retriever import PGVectorRetriever
 from app.services.judge_service import JudgeService
 from app.services.token_tracker import TokenMetrics, calculate_bytes
+
+
+logger = logging.getLogger(__name__)
 
 
 class RAGService:
@@ -12,7 +16,7 @@ class RAGService:
             base_url=os.getenv("PRIVATEMODE_PROXY_URL", "http://localhost:8080/v1"),
             api_key=os.getenv("PRIVATEMODE_API_KEY", "placeholder"),
         )
-        self.model = os.getenv("PRIVATEMODE_MODEL", "meta-llama-3.3-70b")
+        self.model = os.getenv("PRIVATEMODE_MODEL", "gpt-oss-latest")
         self.retriever = retriever if retriever is not None else PGVectorRetriever()
         self.judge_service = JudgeService(self)
 
@@ -47,7 +51,8 @@ class RAGService:
             prompt_tokens = usage.prompt_tokens
             completion_tokens = usage.completion_tokens
             total_tokens = usage.total_tokens
-        except Exception:
+        except Exception as exc:
+            logger.warning("Falling back to local response because model call failed: %s", exc)
             # Fallback keeps the app usable even when the model endpoint is down.
             fallback_summary = "\n\n".join(
                 f"[Source #{i+1}] {ctx.get('article', 'Unknown')} - paragraph {ctx.get('paragraph', 'n/a')} (Page {ctx.get('page', '?')})\n{ctx.get('text', '')}"
@@ -111,12 +116,8 @@ class RAGService:
     def answer_query(self, query: str, limit: int = 4) -> dict:
         retrieved_contexts = self.search(query, limit=limit)
         result = self.generate_answer_with_citations(query, retrieved_contexts)
-        # Judge evaluates grounding/relevance using the same retrieved context.
-        context_text = "\n\n".join(
-            f"[{i + 1}] {ctx.get('article', 'Unknown')} | page {ctx.get('page', '?')} | {ctx.get('text', '')}"
-            for i, ctx in enumerate(retrieved_contexts)
-        )
-        judge_result = self.judge_service.evaluate_response(query, context_text, result["answer"])
+        # Judge evaluates grounding/relevance using the same retrieved source objects.
+        judge_result = self.judge_service.evaluate_response(query, retrieved_contexts, result["answer"])
         if not isinstance(judge_result, dict):
             judge_result = {
                 "faithfulness_score": 0.0,
