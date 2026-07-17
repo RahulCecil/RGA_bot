@@ -13,7 +13,7 @@ class JudgeService:
         :param query: The original user search query.
         :param context_chunks: A list of dicts from retrieval containing keys like:
                        [{'text'|'content': ..., 'article': ..., 'paragraph'|'paragraph_number': ..., 'page'|'page_number': ...}]
-        :param response: The generated chatbot response text containing markdown citations e.g. [Article 5, Paragraph 1, Page 12]
+        :param response: The generated chatbot response text containing markdown citations e.g. [Source #1]
         """
         # 1. Parse and compile the actual citations that WERE sent to the generator
         valid_citations_manifest = []
@@ -77,32 +77,25 @@ class JudgeService:
         }}
         """
 
-        # 3. Native Post-Processing: Extract citations via Python Regex for a hard validation layer
-        # Looks for patterns like [Article 5, Paragraph 1, Page 12] or [Article 6, General Text, Page 14]
-        response_citations = re.findall(
-            r'\[(Article\s+\d+),\s+(Paragraph\s+\d+|General\s+Text),\s+Page\s+(\d+)\]', 
-            response, 
-            re.IGNORECASE
-        )
+        # 3. Native Post-Processing: Extract citations via Python Regex for a hard validation layer.
+        # The answer generator requires inline citations in the format [Source #X].
+        response_citations = re.findall(r'\[Source\s*#\s*(\d+)\]', response, re.IGNORECASE)
         
         hard_citation_failures = []
-        for art, para, pg in response_citations:
-            # Extract digits from paragraph string if applicable
-            para_num_match = re.search(r'\d+', para)
-            para_val = int(para_num_match.group(0)) if para_num_match else None
-            
-            # Cross-reference against our DB manifest
-            match_found = any(
-                m['article'].strip().lower() == art.strip().lower() and
-                m['paragraph_number'] == para_val and
-                str(m['page_number']) == pg.strip()
-                for m in valid_citations_manifest
-            )
-            
-            if not match_found:
+        max_source_index = len(valid_citations_manifest)
+        for source_num_text in response_citations:
+            try:
+                source_num = int(source_num_text)
+            except ValueError:
                 hard_citation_failures.append(
-                    f"Hallucinated citation found in output: [{art}, {para}, Page {pg}] "
-                    f"was not present in the retrieved database context."
+                    f"Malformed source citation found in output: [Source #{source_num_text}]"
+                )
+                continue
+
+            if source_num < 1 or source_num > max_source_index:
+                hard_citation_failures.append(
+                    f"Hallucinated source citation found in output: [Source #{source_num}] "
+                    f"is outside retrieved source range 1..{max_source_index}."
                 )
 
         try:

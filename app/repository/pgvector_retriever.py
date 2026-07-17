@@ -15,7 +15,7 @@ class PGVectorRetriever:
     def __init__(self, connection_string=None):
         self.connection_string = connection_string or os.getenv(
             "DB_CONN_STRING",
-            "postgresql://admin:secret_password@localhost:5432/ai_act_db",
+            "postgresql://admin:secret_password@localhost:5433/ai_act_db",
         )
         self.client = OpenAI(
             base_url=os.getenv("PRIVATEMODE_PROXY_URL", "http://localhost:8080/v1"),

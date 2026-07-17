@@ -65,7 +65,7 @@ docker compose --profile ingest run --rm ingest
 Services:
 
 - API: `http://127.0.0.1:8011`
-- Postgres/pgvector: `localhost:5432`
+- Postgres/pgvector: `localhost:5433`
 
 Environment overrides are in `docker-compose.yml` under the `api` service.
 

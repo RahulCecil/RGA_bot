@@ -6,7 +6,7 @@ from psycopg2.extras import RealDictCursor
 def get_db_connection():
     conn_string = os.getenv(
         "DB_CONN_STRING",
-        "postgresql://admin:secret_password@localhost:5432/ai_act_db",
+        "postgresql://admin:secret_password@localhost:5433/ai_act_db",
     )
     return psycopg2.connect(conn_string)
 

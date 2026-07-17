@@ -16,7 +16,7 @@ from app.core.database import ensure_schema
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PDF_PATH = os.path.join(REPO_ROOT, "docs", "EU_AI_Act_EN_TXT.pdf")
 
-DB_CONN_STRING = os.getenv("DB_CONN_STRING", "postgresql://admin:secret_password@localhost:5432/ai_act_db")
+DB_CONN_STRING = os.getenv("DB_CONN_STRING", "postgresql://admin:secret_password@localhost:5433/ai_act_db")
 PRIVATEMODE_PROXY_URL = os.getenv("PRIVATEMODE_PROXY_URL", "http://localhost:8080/v1")
 PRIVATEMODE_API_KEY = os.getenv("PRIVATEMODE_API_KEY", "placeholder")
 PRIVATEMODE_EMBEDDING_MODEL = os.getenv("PRIVATEMODE_EMBEDDING_MODEL", "qwen3-embedding-4b")
