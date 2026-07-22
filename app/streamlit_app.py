@@ -55,16 +55,16 @@ def render_response_diagnostics(result: dict) -> None:
             st.write("None")
 
 
-st.set_page_config(page_title="RGA Chat", page_icon="📚")
-st.title("RGA Chat: EU AI Act")
-st.caption("Simple Streamlit frontend connected to the FastAPI backend.")
+st.set_page_config(page_title="RAG Chat", page_icon="📚")
+st.title("RAG Chat: EU AI Act [v 1.0.0]")
+st.caption("Simple legal assistant to answer your questions about the EU AI Act. Powered by Private AI.")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
 with st.sidebar:
-    st.write(f"Backend: {get_api_base_url()}")
-    if st.button("Clear chat", use_container_width=True):
+    #st.write(f"Backend: {get_api_base_url()}")
+    if st.button("New chat", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
 
@@ -79,7 +79,7 @@ if prompt:
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
+        with st.spinner("Thinking about that..."):
             try:
                 result = ask_backend(prompt)
                 answer = result.get("answer", "")
